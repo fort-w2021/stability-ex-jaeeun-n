@@ -1,0 +1,189 @@
+## Stabil, Brudi!
+
+### First, understand the problem ....
+
+Wir implementieren (partiell!) eine sehr allgemeine Methode für Variablenselektion  für verschiedene Modellklassen. Die Methode wird beschrieben in Meinshausen und Bühlmann's *Stability Selection*^[Meinshausen, N., & Bühlmann, P. (2010). Stability selection. Journal of the Royal Statistical Society: Series B (Statistical Methodology), 72(4), 417-473.] [(pdf)](http://stat.ethz.ch/~nicolai/stability.pdf). 
+
+a)  Lesen und verstehen Sie Sections 1, 2 und 5 des oben verlinkten Papers. Ignorieren Sie dabei die Abschnitte über "Gaussian graphical modelling" und "randomized Lasso". 
+
+b) Überprüpfen Sie ihr Verständnis. Betrachten Sie dazu den linken und den mittleren Plot in Figure 1 auf Seite 5 oben. 
+Was genau repräsentiert die horizontale Achse ($\lambda$)? Was repräsentieren jeweils die vertikalen Achsen ($\beta$ bzw. $\Pi$)?  Warum fangen in beiden Plots alle Pfade in (1.0, 0.0) an?
+
+**Antwort:**  
+$\lambda$ ist der Tuning-Parameter, der die Höhe der Regularisierung angibt. Für den Plot
+ist der Parameter skaliert, sodass 1 der Wert für das Nullmodell ist und 0 der Wert
+für das aus dem LASSO resultierende Modell.  
+$\beta$ ist der Regressionskoeffizient der verschiedenen Gene in den Modellen
+mit den jeweiligen $\lambda$-Werten. $\Pi$ ist die Wahrscheinlichkeit, dass
+die Kovariable ausgewählt wird, wenn vom Datensatz eine Zufallsstichprobe gezogen wird.  
+Wenn $\lambda$ gleich 0 ist, wird das Nullmodell gebildet. Hier sind alle Koeffizienten
+gleich 0 und die Wahrscheinlichkeit, dass die Kovariable gewählt wird, ebenfalls.
+
+c) Fassen Sie die Grundidee des Stability Selection Algorithmus in eigenen Worten zusammen. Was sind grob die einzelnen Schritte des Algorithmus um die "stability paths" zu berechnen?  
+Erstellen Sie eine erste eigene Skizze einer Implementation des Algorithmus in Pseudo-Code, in dem in der Vorlesung besprochenen Top-Down-Stil. 
+
+*Hinweis*: Falls nötig finden Sie eine einigermaßen übersichtliche Beschreibung der Grundidee von Lasso-Regression anhand derer in dem Paper die *stability selection*-Methode veranschaulicht wird z.B. in Kapitel 3.4.2 aus T. Hastie und R. Tibshirani's *Elements of Statistical Learning* [(pdf)](http://statweb.stanford.edu/~tibs/ElemStatLearn/).
+
+**Antwort:**  
+Im Stability Selection Algorithmus wird das LASSO-Modell von Subsamples gebildet. Hierdurch
+ist es möglich, die Selektionswahrscheinlichkeiten der Kovariablen zu gegebenen
+Regularisierungsparametern zu schätzen. Ziel ist die Erleichterung der Wahl des 
+Regularisierungsparameters und die Variablenselektion.  
+
+**Die einzelnen Schritte sind:**  
+1) Ziehe Stichprobe aus dem gesamten Datensatz mit n/2 Beobachtungen ohne Zurücklegen  
+2) Bilde das LASSO-Modell und den zugehörigen Koeffizienten-Pfad  
+3) Wiederhole 1 und 2 N-mal (z.B. 100)  
+4) Berechne für jedes $\lambda$ und jeden Koeffizieten den Anteil, wie oft
+die Kovariable in das Modell der N Simulationen aufgenommen wurde   
+
+**Pseudocode (hier sollen auch Ziehungen mit Zurücklegen möglich sein):**
+```{r, pseudo, eval=FALSE}
+do_stability_selection <- function(data, N, resample_method) {
+  stability_path <- array()
+  for (i in N) {
+    resample_data <- resample(data, resample_method)
+    lasso_model <- build_lasso(resample_data)
+    stability_path[[, , i]] <- is_selected(lasso_model)
+  }
+  sum_over_axis(stability_path)
+}
+```
+
+--------------------------
+
+### ... then, write the code:
+
+Benutzen Sie als Ausgangsbasis den Code in `get-stability-paths.R`. 
+```{r, load, echo=FALSE}
+source("get-stability-paths.R")
+```
+Die `refit`-Funktion können Sie hier zunächst mal als "black box" betrachten.
+Beachten Sie bitte dass Sie eventuell noch die Pakete `{leaps}` und `{ElemStatLearn}` installieren müssen.
+
+## Stabil, Brudi: Resampling
+
+Schreiben Sie die fehlenden Funktionen 
+```r
+sample_without_replacement <- function(nrows, strata = NULL, fraction = 0.5) {
+  # ??
+}
+get_selected <- function(new_model) {
+  # ??
+}
+make_paths <- function(selected) {
+  # ??
+}
+```
+`get_selected` sollte für ein gegebenes Modell eine Matrix mit (max. Subsetgröße+1)$\times$(Anz. Kovariablen)
+zurückgeben, `make_paths` sollte für eine Liste solcher Matrizen eine Matrix die die *stability paths* enthält zurückgeben. Die erste Zeile der Matrizen sollte (Selektionshäufigkeiten für) 
+ein Modell ohne Kovariablen repräsentieren. 
+
+*Hinweis / Spoiler:* Die für `get_selected` benötigten Informationen über ein von `regsubsets` erzeugtes Modellobjekt können Sie mit `summary` in die Konsole drucken lassen.  
+Benutzen sie `str` in Kombination mit `summary` um zu verstehen wo & wie diese Informationen abgespeichert sind um diese dann per Code auslesen zu können.
+
+**Fehlende Funktionen:**
+```{r, codes}
+# sample without replacement (in every stratum)
+# input: number of rows, vector indicating the strata membership of the rows,
+#        sample size as fraction
+# output: vector of row numbers
+sample_without_replacement <- function(nrows, strata = NULL, fraction = 0.5) {
+  if (is.null(strata)) {
+    return(sample(nrows, replace = FALSE, size = nrows * 0.5))
+  }
+  rows <- tapply(
+    X = seq_len(nrows), INDEX = strata, FUN = sample, replace = FALSE
+  )
+  as.vector(rows)
+}
+
+# get the logical matrix indicating whether a covariate is selected for the model
+# or not
+# input: output of 'regsubsets' (model)
+# output: logical matrix
+#         (rows for number of covariates, cols for covariate excluding intercept)
+get_selected <- function(new_model) {
+  summary(new_model)[["which"]][, -1]
+}
+
+# get the selection path from a series of model selections via 'regsubsets'
+# input: list of logical matrices of same size
+#        indicating whether a covariate is selected for the model or not
+#        (rows for number of covariates, cols for covariate excluding intercept)
+# output: matrix with proportion of selections of the covariate for a specific
+#         number of covariates
+#        (rows for number of covariates, cols for covariate excluding intercept)
+make_paths <- function(selected) {
+  subset_size <- nrow(selected[[1]])
+  number_covariables <- ncol(selected[[1]])
+  reps <- length(selected)
+
+  paths <- matrix(
+    nrow = subset_size + 1, ncol = number_covariables,
+    dimnames = list(0:subset_size, colnames(selected[[1]]))
+  )
+  paths[1, ] <- rep(0, number_covariables) # add null model
+
+  selected_as_array <- array(unlist(selected), dim = c(subset_size, number_covariables, reps))
+  paths[-1, ] <- round(rowSums(selected_as_array, dims = 2) / reps, digits = 3)
+
+  paths
+}
+```
+
+Überprüfen Sie Ihren Code mit folgendem Test:
+```{r, code = readLines("test-get-stability-paths.R")}
+```
+
+### Visualisierung
+
+Schreiben Sie eine Funktion `plot_stability_paths`, ~~die in etwa so etwas wie 
+die untenstehende Grafik erzeugt~~. 
+
+```{r, plot}
+# plot stability path for every covariate
+# input: stability path matrix 
+#        (rows for number of covariates, cols for covariates),
+#        label for x- and y-axis
+# output: ggplot
+plot_stability_paths <- function(stability_paths,
+                                 x_label = "# covariates", y_label = expression(Pi)) {
+  checkmate::assert_matrix(stability_paths,
+    any.missing = FALSE,
+    min.rows = 2, min.cols = 2
+  )
+  checkmate::assert_numeric(stability_paths,
+    lower = 0, upper = 1
+  )
+  checkmate::assert_atomic(as.character(x_label))
+  checkmate::assert_atomic(as.character(y_label))
+
+  stability_paths <- data.frame(t(stability_paths))
+  colnames(stability_paths) <- seq_along(stability_paths) - 1
+  stability_paths[["covariate"]] <- rownames(stability_paths)
+
+  stability_paths <- tidyr::gather(
+    stability_paths,
+    "number_covariates",
+    "selection_probability",
+    -covariate
+  )
+
+  ggplot2::ggplot(
+    stability_paths,
+    ggplot2::aes(
+      x = number_covariates,
+      y = selection_probability,
+      group = covariate,
+      color = covariate
+    )
+  ) +
+    ggplot2::geom_point() +
+    ggplot2::geom_line() +
+    ggplot2::xlab(x_label) +
+    ggplot2::ylab(y_label)
+}
+
+plot_stability_paths(stability_paths)
+```
